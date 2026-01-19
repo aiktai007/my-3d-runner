@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Shimhkam Runner - Pro Full Body</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; -webkit-touch-callout: none; user-select: none; }
+        #ui { position: absolute; top: 10px; left: 10px; z-index: 10; pointer-events: none; }
+        .stat-box { background: rgba(0,0,0,0.85); padding: 10px; border: 2px solid #00fbff; border-radius: 8px; margin-bottom: 5px; color: #00fbff; font-weight: bold; min-width: 120px; box-shadow: 0 0 15px rgba(0,251,255,0.4); }
+        #highScoreBox { border-color: #ffea00; color: #ffea00; }
+        .controls { position: absolute; bottom: 30px; right: 30px; width: 180px; height: 180px; z-index: 20; }
+        .btn { position: absolute; width: 75px; height: 75px; background: rgba(255,255,255,0.25); border: 3px solid #fff; border-radius: 50%; display: flex; justify-content: center; align-items: center; color: #fff; font-size: 35px; backdrop-filter: blur(5px); touch-action: none; }
+        #lBtn { bottom: 0; left: 0; }
+        #rBtn { bottom: 0; right: 0; }
+        #nitro { top: 0; left: 50%; transform: translateX(-50%); width: 110px; height: 65px; border-radius: 35px; border-color: #ff4444; color: #ff4444; font-size: 20px; font-weight: bold; }
+        #start { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; justify-content: center; align-items: center; z-index: 100; color: #fff; text-align: center; cursor: pointer; }
+    </style>
+</head>
+<body oncontextmenu="return false;">
+    <div id="start" onclick="startGame()">
+        <h1>SHIMHKAM RUNNER<br><small style="color:#00fbff">TAP TO PLAY (ALL FIXED)</small></h1>
+    </div>
+    <div id="ui">
+        <div class="stat-box" id="highScoreBox">BEST: <span id="highScore">0</span>m</div>
+        <div class="stat-box">DIST: <span id="dist">0</span>m</div>
+        <div class="stat-box">COINS: <span id="coinCount">0</span></div>
+    </div>
+    <div class="controls">
+        <div id="nitro" class="btn">NITRO</div>
+        <div id="lBtn" class="btn">◀</div>
+        <div id="rBtn" class="btn">▶</div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        let score = 0, coins = 0, level = 1, moveL = false, moveR = false, isNitro = false, gameStarted = false;
+        let highScore = localStorage.getItem('shimhkam_highscore') || 0;
+        document.getElementById('highScore').innerText = highScore;
+
+        const bgMusic = new Audio('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3');
+        bgMusic.loop = true;
+
+        function startGame() {
+            document.getElementById('start').style.display = 'none';
+            bgMusic.play().catch(() => {});
+            gameStarted = true;
+        }
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x020205);
+        scene.fog = new THREE.FogExp2(0x020205, 0.015);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // Lighting (ပိုလင်းစေရန်)
+        scene.add(new THREE.AmbientLight(0xffffff, 1.5));
+        const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+        sun.position.set(5, 15, 10);
+        scene.add(sun);
+
+        // Player (Full Body - ခြေ၊ လက် အစုံ)
+        const player = new THREE.Group();
+        const skinMat = new THREE.MeshStandardMaterial({color: 0xffdbac});
+        const clothesMat = new THREE.MeshStandardMaterial({color: 0x00fbff});
+        
+        const torso = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.7, 0.3), clothesMat); torso.position.y = 1.05;
+        const head = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.35, 0.35), skinMat); head.position.y = 1.6;
+        const lLeg = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.6, 0.18), new THREE.MeshStandardMaterial({color: 0x333333}));
+        lLeg.position.set(-0.15, 0.35, 0);
+        const rLeg = lLeg.clone(); rLeg.position.x = 0.15;
+        const lArm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.6, 0.12), skinMat);
+        lArm.position.set(-0.35, 1.1, 0);
+        const rArm = lArm.clone(); rArm.position.x = 0.35;
+        player.add(torso, head, lLeg, rLeg, lArm, rArm);
+        scene.add(player);
+
+        // Road
+        const roadGeo = new THREE.PlaneGeometry(15, 100);
+        const roadMat = new THREE.MeshStandardMaterial({color: 0x222222});
+        const roads = [];
+        for(let i=0; i<6; i++) {
+            const r = new THREE.Mesh(roadGeo, roadMat);
+            r.rotation.x = -Math.PI/2; r.position.z = -i * 100;
+            scene.add(r); roads.push(r);
+        }
+
+        // Environment
+        const buildings = [], streetLights = [];
+        function createDecor(z) {
+            const h = 10 + Math.random() * 20;
+            const bMat = new THREE.MeshStandardMaterial({color: 0x1a1a2e});
+            const bL = new THREE.Mesh(new THREE.BoxGeometry(5, h, 5), bMat);
+            bL.position.set(-10, h/2, z);
+            
+            // ပြတင်းပေါက်မီးများ
+            for(let j=0; j<5; j++) {
+                const win = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5), new THREE.MeshBasicMaterial({color: 0xffea00}));
+                win.position.set(2.51, (j*3)+2, Math.random()*4-2);
+                win.rotation.y = Math.PI/2;
+                bL.add(win);
+            }
+            const bR = bL.clone(); bR.position.x = 10; bR.rotation.y = Math.PI;
+            scene.add(bL, bR); buildings.push(bL, bR);
+
+            // မီးတိုင်
+            const pole = new THREE.Group();
+            const p = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 8), new THREE.MeshStandardMaterial({color: 0x444444}));
+            const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.35), new THREE.MeshBasicMaterial({color: 0xffff00}));
+            bulb.position.y = 4;
+            const light = new THREE.PointLight(0xffff00, 1.5, 15);
+            light.position.y = 4;
+            pole.add(p, bulb, light); pole.position.set(7.5, 0, z);
+            scene.add(pole); streetLights.push(pole);
+        }
+        for(let i=0; i<30; i++) createDecor(-i * 50);
+
+        const enemies = [], coinsArr = [];
+        function spawn() {
+            if(!gameStarted) return setTimeout(spawn, 1000);
+            const z = player.position.z - 130, x = (Math.random() * 10) - 5;
+            const e = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.6, 1.6), new THREE.MeshStandardMaterial({color: 0xff0000}));
+            e.position.set(x, 0.8, z); scene.add(e); enemies.push(e);
+            const c = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.1, 20), new THREE.MeshBasicMaterial({color: 0xffd700}));
+            c.rotation.x = Math.PI/2; c.position.set(-x, 1.2, z - 20);
+            scene.add(c); coinsArr.push(c);
+            setTimeout(spawn, 1600);
+        }
+        spawn();
+
+        const setupBtn = (id, start, end) => {
+            const el = document.getElementById(id);
+            el.addEventListener('touchstart', (e) => { e.preventDefault(); start(); }, {passive: false});
+            el.addEventListener('touchend', (e) => { e.preventDefault(); end(); }, {passive: false});
+        };
+        setupBtn('lBtn', () => moveL = true, () => moveL = false);
+        setupBtn('rBtn', () => moveR = true, () => moveR = false);
+        setupBtn('nitro', () => isNitro = true, () => isNitro = false);
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if(!gameStarted) return;
+
+            score = Math.floor(Math.abs(player.position.z));
+            document.getElementById('dist').innerText = score;
+            let speed = isNitro ? 1.5 : 0.65;
+            player.position.z -= speed;
+
+            // ခြေလက် လှုပ်ရှားမှု Animation
+            const wave = Math.sin(Date.now() * 0.012);
+            lLeg.rotation.x = wave * 0.8; rLeg.rotation.x = -wave * 0.8;
+            lArm.rotation.x = -wave * 0.8; rArm.rotation.x = wave * 0.8;
+
+            if(moveL && player.position.x > -6.5) player.position.x -= 0.45;
+            if(moveR && player.position.x < 6.5) player.position.x += 0.45;
+
+            camera.position.set(player.position.x * 0.5, 5, player.position.z + 12);
+            camera.lookAt(player.position.x, 2, player.position.z - 5);
+
+            roads.forEach(r => { if(r.position.z > player.position.z + 100) r.position.z -= 600; });
+            buildings.concat(streetLights).forEach(obj => { if(obj.position.z > player.position.z + 50) obj.position.z -= 1500; });
+            coinsArr.forEach((c, i) => { 
+                c.rotation.y += 0.1;
+                if(player.position.distanceTo(c.position) < 1.6) {
+                    coins++; scene.remove(c); coinsArr.splice(i, 1);
+                    document.getElementById('coinCount').innerText = coins;
+                }
+            });
+            enemies.forEach(e => {
+                if(player.position.distanceTo(e.position) < 1.5) {
+                    if(score > highScore) localStorage.setItem('shimhkam_highscore', score);
+                    alert("GAME OVER! SCORE: " + score); location.reload();
+                }
+            });
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+</body>
+</html>
