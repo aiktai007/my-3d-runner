@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Shimhkam Pro Runner - Evolution</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        #ui { position: absolute; top: 10px; left: 10px; z-index: 10; pointer-events: none; }
+        .stat-box { background: rgba(0,0,0,0.6); padding: 8px 12px; border: 1px solid #00fbff; border-radius: 4px; margin-bottom: 5px; color: #00fbff; font-weight: bold; text-shadow: 0 0 5px #00fbff; }
+        #highScoreBox { color: #ffea00; border-color: #ffea00; text-shadow: 0 0 5px #ffea00; }
+        
+        .main-controls { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); display: flex; gap: 25px; z-index: 20; }
+        .btn-circle { width: 75px; height: 75px; background: rgba(255,255,255,0.1); border: 2px solid #fff; border-radius: 50%; display: flex; justify-content: center; align-items: center; color: #fff; font-size: 28px; backdrop-filter: blur(5px); }
+        .btn-circle:active { transform: scale(0.9); background: rgba(0,251,255,0.4); }
+        
+        #nitro { position: absolute; bottom: 130px; left: 50%; transform: translateX(-50%); width: 100px; height: 45px; border-radius: 20px; font-size: 16px; border: 2px solid #ff4444; color: #ff4444; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div class="stat-box" id="highScoreBox">BEST: <span id="highScore">0</span>m</div>
+        <div class="stat-box" id="lvlDisp">LEVEL: 1 (CITY)</div>
+        <div class="stat-box">DIST: <span id="dist">0</span>m</div>
+        <div class="stat-box">COINS: <span id="coinCount">0</span></div>
+    </div>
+
+    <div id="nitro" class="btn-circle">NITRO</div>
+    <div class="main-controls">
+        <div id="lBtn" class="btn-circle">◀</div>
+        <div id="rBtn" class="btn-circle">▶</div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        let score = 0, coinCount = 0, level = 1, moveL = false, moveR = false, isNitro = false;
+        let baseSpeed = 0.55;
+        let highScore = localStorage.getItem('shimhkam_highscore') || 0;
+        document.getElementById('highScore').innerText = highScore;
+
+        const scene = new THREE.Scene();
+        let currentFogColor = 0x020205;
+        scene.fog = new THREE.FogExp2(currentFogColor, 0.012);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+        const sun = new THREE.DirectionalLight(0xffffff, 0.5);
+        sun.position.set(5, 10, 5);
+        scene.add(sun);
+
+        // Player Setup
+        const player = new THREE.Group();
+        const skinMat = new THREE.MeshStandardMaterial({color: 0xffdbac});
+        const clothesMat = new THREE.MeshStandardMaterial({color: 0x00fbff});
+        const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), skinMat);
+        head.position.y = 1.6;
+        const torso = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.7, 0.3), clothesMat);
+        torso.position.y = 1.0;
+        const lLeg = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.6, 0.15), new THREE.MeshStandardMaterial({color: 0x222222}));
+        lLeg.position.set(-0.15, 0.3, 0);
+        const rLeg = lLeg.clone(); rLeg.position.x = 0.15;
+        const lArm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.6, 0.12), skinMat);
+        lArm.position.set(-0.35, 1.1, 0);
+        const rArm = lArm.clone(); rArm.position.x = 0.35;
+        player.add(head, torso, lLeg, rLeg, lArm, rArm);
+        scene.add(player);
+
+        // Environment
+        const roadGeo = new THREE.PlaneGeometry(15, 5000);
+        const roadMat = new THREE.MeshStandardMaterial({color: 0x111111});
+        const road = new THREE.Mesh(roadGeo, roadMat);
+        road.rotation.x = -Math.PI/2;
+        scene.add(road);
+
+        const buildings = [], streetLights = [], nature = [];
+        function createDecor(z) {
+            // City
+            const h = 10 + Math.random() * 15;
+            const bL = new THREE.Mesh(new THREE.BoxGeometry(5, h, 5), new THREE.MeshStandardMaterial({color: 0x1a1a2e}));
+            bL.position.set(-10, h/2, z);
+            const bR = bL.clone(); bR.position.x = 10;
+            scene.add(bL, bR); buildings.push(bL, bR);
+
+            // Street Lights
+            const pole = new THREE.Group();
+            const p = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 8), new THREE.MeshStandardMaterial({color: 0x444444}));
+            const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.3), new THREE.MeshBasicMaterial({color: 0x00fbff}));
+            bulb.position.y = 4;
+            pole.add(p, bulb); pole.position.set(7, 4, z);
+            scene.add(pole); streetLights.push(pole);
+
+            // Forest (Trees - initially hidden)
+            const tree = new THREE.Group();
+            const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 2), new THREE.MeshStandardMaterial({color: 0x4b2d1f}));
+            const leaves = new THREE.Mesh(new THREE.ConeGeometry(1.5, 4, 8), new THREE.MeshStandardMaterial({color: 0x0a5d00}));
+            leaves.position.y = 2.5;
+            tree.add(trunk, leaves); tree.position.set(-8 - Math.random()*5, 1, z - 20);
+            tree.visible = false;
+            scene.add(tree); nature.push(tree);
+        }
+        for(let i=0; i<40; i++) createDecor(-i * 40);
+
+        const enemies = [], coinsArr = [];
+        function spawn() {
+            const z = player.position.z - 120, x = Math.random() * 10 - 5;
+            const e = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5), new THREE.MeshStandardMaterial({color: 0xff0000}));
+            e.position.set(x, 0.75, z); scene.add(e); enemies.push(e);
+            const c = new THREE.Mesh(new THREE.SphereGeometry(0.5), new THREE.MeshBasicMaterial({color: 0xffd700}));
+            c.position.set(-x, 0.6, z + 20); scene.add(c); coinsArr.push(c);
+            setTimeout(spawn, Math.max(400, 1800 - (level * 150)));
+        }
+        spawn();
+
+        // Control Handling
+        const btn = (id, s, e) => {
+            const b = document.getElementById(id);
+            b.ontouchstart = (ev) => { ev.preventDefault(); s(); };
+            b.ontouchend = (ev) => { ev.preventDefault(); e(); };
+        };
+        btn('lBtn', () => moveL=true, () => moveL=false);
+        btn('rBtn', () => moveR=true, () => moveR=false);
+        btn('nitro', () => isNitro=true, () => isNitro=false);
+
+        function updateEnvironment() {
+            if(level >= 4 && level < 7) { // FOREST
+                document.getElementById('lvlDisp').innerText = `LEVEL: ${level} (FOREST)`;
+                scene.background = new THREE.Color(0x0a2d00);
+                scene.fog.color.set(0x0a2d00);
+                roadMat.color.set(0x2d1b00);
+                buildings.forEach(b => b.visible = false);
+                nature.forEach(t => t.visible = true);
+            } else if (level >= 7) { // SPACE
+                document.getElementById('lvlDisp').innerText = `LEVEL: ${level} (SPACE)`;
+                scene.background = new THREE.Color(0x000011);
+                scene.fog.color.set(0x000011);
+                roadMat.color.set(0x444444);
+                nature.forEach(t => t.visible = false);
+                streetLights.forEach(s => s.children[1].material.color.set(0xff00ff));
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            score = Math.floor(Math.abs(player.position.z));
+            let newLevel = Math.min(10, Math.floor(score / 4000) + 1);
+            if(newLevel > level) {
+                level = newLevel; baseSpeed += 0.12;
+                updateEnvironment();
+            }
+
+            let speed = isNitro ? baseSpeed * 2.3 : baseSpeed;
+            player.position.z -= speed;
+
+            const wave = Math.sin(Date.now() * 0.01);
+            lLeg.rotation.x = wave * 0.8; rLeg.rotation.x = -wave * 0.8;
+            lArm.rotation.x = -wave * 0.8; rArm.rotation.x = wave * 0.8;
+
+            if(moveL && player.position.x > -6) player.position.x -= 0.3;
+            if(moveR && player.position.x < 6) player.position.x += 0.3;
+
+            camera.position.set(player.position.x * 0.7, 5, player.position.z + 10);
+            camera.lookAt(player.position.x, 2, player.position.z - 5);
+
+            // Recycling objects
+            [...buildings, ...streetLights, ...nature].forEach(obj => {
+                if(obj.position.z > player.position.z + 50) obj.position.z -= 1600;
+            });
+            if(player.position.z < road.position.z - 1000) road.position.z -= 2000;
+
+            // Collisions
+            enemies.forEach(e => {
+                if(player.position.distanceTo(e.position) < 1.6) {
+                    if(score > highScore) localStorage.setItem('shimhkam_highscore', score);
+                    alert(`GAME OVER! \nScore: ${score} \nBest: ${Math.max(score, highScore)}`);
+                    location.reload();
+                }
+            });
+            coinsArr.forEach((c, i) => {
+                if(player.position.distanceTo(c.position) < 1.6) {
+                    coinCount++; scene.remove(c); coinsArr.splice(i, 1);
+                    document.getElementById('coinCount').innerText = coinCount;
+                }
+            });
+
+            document.getElementById('dist').innerText = score;
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+</body>
+</html>
